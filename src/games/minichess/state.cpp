@@ -71,7 +71,10 @@ int State::evaluate(
 
     // [ Hackathon TODO 1-1 ]
     // if in win state, return max score(you can check base_state.hpp for max score)
-    
+    if(this->game_state == WIN){
+        return P_MAX;
+    }
+
     auto self_board = this->board.board[this->player];
     auto oppn_board = this->board.board[1 - this->player];
     int self_score = 0, oppn_score = 0;
@@ -83,17 +86,79 @@ int State::evaluate(
         int oppn_kr = -1, oppn_kc = -1;
         // [ Hackathon TODO 1-3 ]
         // get the position for player's king and opponent's king
+        for(int r = 0; r < BOARD_H; ++r){
+            for(int c = 0; c < BOARD_W; ++c){
+                if(self_board[r][c] == 6){
+                    self_kr = r;
+                    self_kc = c;
+                }
+                if(oppn_board[r][c] == 6){
+                    oppn_kr = r;
+                    oppn_kc = c;
+                }
+            }
+        }
 
         // [ Hackathon TODO 1-4 ]
         // sum player/opponent pieces' value and add to score
         // if enemy king is still on the board, you should also call king_tropism for your pieces and add the value to score
         // king_tropism is already given above
 
+        for(int r = 0; r < BOARD_H; ++r){
+            for(int c = 0; c < BOARD_W; ++c){
+                int sp = self_board[r][c];
+                int op = oppn_board[r][c];
+
+                if(sp){
+                    self_score += kp_material[sp];
+                    int srow;
+                    if(this->player == 0){
+                        srow = r;
+                    } else  {
+                        srow = (BOARD_H - 1 - r); // lật ngược lại bàn cờ
+                    }
+                    self_score += pst[sp-1][srow][c];
+
+                    if(oppn_kr != -1){
+                        self_score += king_tropism(sp, r, c, oppn_kr, oppn_kc);
+                    }
+
+                }
+
+                if(op){
+                    oppn_score += kp_material[op];
+                    int orow;
+                    if(this->player == 0){
+                        orow = (BOARD_H - 1 - r);
+                    } else {
+                        orow = r;
+                    }
+                    oppn_score += pst[op-1][orow][c];
+                    if(self_kr != -1){
+                        oppn_score += king_tropism(op, r, c, self_kr, self_kc);
+                    }
+                }
+
+                
+            }
+        }
+
     }else{
         /* === Simple material-only eval === */
 
         // [ Hackathon TODO 1-2 ]
         // Simply add each piece's value to score
+        for(int r = 0; r < BOARD_H; ++r){
+            for(int c = 0; c < BOARD_W; ++c){
+                if(self_board[r][c] != 0){
+                    self_score += simple_material[(int)self_board[r][c]];
+                }
+                if(oppn_board[r][c] != 0){
+                    oppn_score += simple_material[(int)oppn_board[r][c]];
+                }
+
+            }
+        }
 
     }
 
@@ -105,6 +170,20 @@ int State::evaluate(
         // you can calculate mobility by legal actions size
         // bonus += 2 * (self_mobility - oppn_mobility);
 
+        
+        this->get_legal_actions();
+    
+        int self_mobility = (int)(this->legal_actions.size());
+
+        int oppn_mobility = 0;
+        BaseState* opp = this->create_null_state();
+        if(opp){
+            opp->get_legal_actions();
+            oppn_mobility = (int)(opp->legal_actions.size());
+            delete opp;
+        }
+
+        bonus += 2 * (self_mobility - oppn_mobility);
     }
 
     return self_score - oppn_score + bonus;
@@ -221,7 +300,8 @@ static const int move_table_rook_bishop[8][7][2] = {
 // [ Hackathon TODO 2-1 ]
 // fill the knight move table
 static const int move_table_knight[8][2] = {
-
+    {2, 1}, {2, -1}, {-2, 1}, {-2, -1},
+    {1, 2}, {1, -2}, {-1, 2}, {-1, -2},
 };
 static const int move_table_king[8][2] = {
   {1, 0}, {0, 1}, {-1, 0}, {0, -1}, 
@@ -332,6 +412,28 @@ void State::get_legal_actions_naive(){
                     case 3: //knight
                         // [ Hackathon TODO 2-2 ]
                         // complete knight's movement, you can refer to other pieces' movement
+
+                        for(auto move: move_table_knight){
+                            int p[2] = {move[0] + i, move[1] + j};
+
+                            if(p[0]>=BOARD_H || p[0]<0 || p[1]>=BOARD_W || p[1]<0){
+                                continue;
+                            }
+                            now_piece = self_board[p[0]][p[1]];
+                            if(now_piece){
+                                continue;
+                            }
+
+                            all_actions.push_back(Move(Point(i, j), Point(p[0], p[1])));
+
+                            oppn_piece = oppn_board[p[0]][p[1]];
+                            if(oppn_piece==6){
+                                this->game_state = WIN;
+                                this->legal_actions = all_actions;
+                                return;
+                            }
+                        }
+                        break;
 
                     case 6: //king
                         for(auto move: move_table_king){
