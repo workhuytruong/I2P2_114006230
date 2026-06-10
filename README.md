@@ -12,9 +12,9 @@ stdin/stdout, and ships with Python GUI and CLI front-ends.
 +----------------------------------------------+
                       |
                       v
-+----------------------------------------------+
-|   Search (game-agnostic): MiniMax, Random     |
-+----------------------------------------------+
++---------------------------------------------------------+
+|   Search (game-agnostic): MiniMax, Random, AlphaBeta     |
++---------------------------------------------------------+
                       |
                       v
 +----------------------------------------------+
@@ -243,6 +243,7 @@ via the UBGI `Algorithm` option. The default is **`minimax`**.
 |------|------|-------------|
 | `minimax` | `src/policy/minimax.cpp` | Exhaustive negamax to a fixed depth, no pruning. The correctness baseline. |
 | `random`  | `src/policy/random.cpp`  | Picks a uniformly random legal move; no search or evaluation. |
+| `alphabeta` | `src/policy/alphabeta.cpp` | Negamax with alpha-beta pruning. Returns the same minimax score while pruning branches for faster search. |
 
 Every algorithm exposes the same entry point and registers it in the table:
 
@@ -333,7 +334,7 @@ An `info` line may carry `depth`, `seldepth`, `score cp <n>`, `nodes`, `time`
 |------|------|---------|-------|
 | `GameName` | string | `MiniChess` | Read-only metadata. |
 | `BoardWidth` / `BoardHeight` | spin | `5` / `6` | Read-only metadata. |
-| `Algorithm` | combo | `minimax` | One of `minimax`, `random`. Switching resets that algorithm's parameters to its defaults. |
+| `Algorithm` | combo | `minimax` | One of `minimax`, `alphabeta`, `random`. Switching resets that algorithm's parameters to its defaults. |
 | `MultiPV` | spin | `1` (1–10) | Report the top-N candidate moves with scores. |
 | `UseKPEval` | check | `true` | Use KP evaluation (material + PST + tropism). |
 | `UseEvalMobility` | check | `true` | Include the mobility term. |
@@ -364,7 +365,7 @@ ENGINE: id author MiniChess Team
 ENGINE: option name GameName type string default MiniChess
 ENGINE: option name BoardWidth type spin default 5 min 1 max 26
 ENGINE: option name BoardHeight type spin default 6 min 1 max 26
-ENGINE: option name Algorithm type combo default minimax var minimax var random
+ENGINE: option name Algorithm type combo default minimax var minimax var random var alphabeta
 ENGINE: option name UseKPEval type check default true
 ENGINE: option name UseEvalMobility type check default true
 ENGINE: option name ReportPartial type check default true
@@ -421,6 +422,7 @@ src/
     registry.hpp              # algorithm registry (name -> search)
     game_history.hpp          # position-hash counter for repetition
     minimax.hpp/cpp           # negamax search
+    alphabeta.hpp/cpp         # negamax search with alpha-beta pruning
     random.hpp/cpp            # random legal move
   ubgi/
     ubgi.hpp/cpp              # UBGI protocol loop, iterative deepening, MultiPV
