@@ -1,6 +1,6 @@
 #include <utility>
 #include "state.hpp"
-#include "pvs.hpp"
+#include "quiescence.hpp"
 #include <algorithm>
 #include "config.hpp"
 
@@ -49,13 +49,118 @@ static std::vector<Move> ordered_moves(State* state){
     return moves;
 }
 
+static bool is_capture_move(State* state, const Move& move){
+    Point to = move.second;
+    int opp = 1 - state->player;
+    return state->board.board[opp][to.first][to.second] != 0;
+}
+
+static std::vector<Move> capture_moves(State* state){
+    std::vector<Move> moves;
+
+    for(const auto& move: state->legal_actions){
+        if(is_capture_move(state, move)){
+            moves.push_back(move);
+        }
+    }
+
+    std::sort(moves.begin(), moves.end(),
+        [&](const Move& a, const Move& b){
+            return move_order_score(state, a) > move_order_score(state, b);
+        }
+    );
+
+    return moves;
+}
+
+static int quiescence(
+    State* state,
+    int alpha,
+    int beta,
+    GameHistory& history,
+    int ply,
+    SearchContext& ctx,
+    const MMParams& p,
+    int qdepth
+){
+    ctx.nodes++;
+    if(ply > ctx.seldepth){
+        ctx.seldepth = ply;
+    }
+
+    if(ctx.stop){
+        return 0;
+    }
+
+    if(state->legal_actions.empty() && state->game_state == UNKNOWN){
+        state->get_legal_actions();
+    }
+
+    if(state->game_state == WIN){
+        return P_MAX - ply;
+    }
+
+    if(state->game_state == DRAW){
+        return 0;
+    }
+
+    int stand_pat = state->evaluate(
+        p.use_kp_eval, p.use_eval_mobility, &history
+    );
+
+    if(stand_pat >= beta){
+        return beta;
+    }
+
+    if(stand_pat > alpha){
+        alpha = stand_pat;
+    }
+
+    if(qdepth <= 0){
+        return alpha;
+    }
+
+    auto moves = capture_moves(state);
+
+    for(auto& action : moves){
+        State* next = state->next_state(action);
+        bool same = next->same_player_as_parent();
+
+        int raw_score;
+        int score;
+
+        if(same){
+            raw_score = quiescence(
+                next, alpha, beta, history, ply + 1, ctx, p, qdepth - 1
+            );
+            score = raw_score;
+        } else {
+            raw_score = quiescence(
+                next, -beta, -alpha, history, ply + 1, ctx, p, qdepth - 1
+            );
+            score = -raw_score;
+        }
+
+        delete next;
+
+        if(score >= beta){
+            return beta;
+        }
+
+        if(score > alpha){
+            alpha = score;
+        }
+    }
+    return alpha;
+    
+}
 
 /*============================================================
- * PVS — eval_ctx
+ * Quiescence — eval_ctx
  *
  * Negamax with pruning. Caller manages memory.
  *============================================================*/
-int PVS::eval_ctx(
+int Quiescence::eval_ctx(
     State *state,
     int depth,
     int alpha,
@@ -98,9 +203,9 @@ int PVS::eval_ctx(
     history.push(state->hash());
 
     if(depth <= 0){
-        int score = state->evaluate(
-            p.use_kp_eval, p.use_eval_mobility, &history
-        ); 
+        int score = quiescence(
+        state, alpha, beta, history, ply, ctx, p, 4
+        );
         history.pop(state->hash());
         return score;
     }
@@ -176,11 +281,11 @@ int PVS::eval_ctx(
 
 
 /*============================================================
- * PVS — search
+ * Quiescence — search
  *
  * Iterate legal moves, call eval_ctx, return SearchResult.
  *============================================================*/
-SearchResult PVS::search(
+SearchResult Quiescence::search(
     State *state,
     int depth,
     GameHistory& history,
@@ -276,9 +381,9 @@ SearchResult PVS::search(
 
 
 /*============================================================
- * PVS — default_params / param_defs
+ * Quiescene — default_params / param_defs
  *============================================================*/
-ParamMap PVS::default_params(){
+ParamMap Quiescence::default_params(){
     return {
         {"UseKPEval", "true"},
         {"UseEvalMobility", "true"},
@@ -286,7 +391,7 @@ ParamMap PVS::default_params(){
     };
 }
 
-std::vector<ParamDef> PVS::param_defs(){
+std::vector<ParamDef> Quiescence::param_defs(){
     return {
         {"UseKPEval", ParamDef::CHECK, "true"},
         {"UseEvalMobility", ParamDef::CHECK, "true"},
