@@ -57,6 +57,126 @@ static int king_tropism(
     return 0;
 }
 
+static int pawn_advancement_bonus(int owner, int row){
+    int advancement = 0;
+    if(owner == 0){
+        advancement = (BOARD_H - 1 - row);
+    } else {
+        advancement = row;
+    }
+
+    bool near_promotion = (advancement == BOARD_H - 2);
+    return advancement * 4 + (near_promotion ? 24 : 0);
+}
+
+/* Return true if no piece blocks the line between source and target.
+ * Used by rook, bishop, and queen attack checks.
+ */
+static bool path_clear(
+    const Board& board,
+    int from_r, int from_c,
+    int target_r, int target_c
+){
+    int dr = (target_r > from_r) - (target_r < from_r);
+    int dc = (target_c > from_c) - (target_c < from_c);
+
+    int r = from_r + dr;
+    int c = from_c + dc;
+
+    while(r != target_r || c != target_c){
+        if(board.board[0][r][c] || board.board[1][r][c]){
+            return false;
+        }
+        r += dr;
+        c += dc;
+    }
+    return true;
+}
+
+/* Return true if the given piece attacks the target square.
+ * Sliding pieces require path_clear(); pawns, knights, and kings do not.
+ */
+
+static bool attacks_square(
+    int piece,
+    int owner,
+    int from_r, int from_c,
+    int target_r, int target_c,
+    const Board& board
+){
+    int dr = target_r - from_r;
+    int dc = target_c - from_c;
+
+    int adr = std::abs(dr);
+    int adc = std::abs(dc);
+    
+    switch(piece)
+    {
+        case 1:
+            if(owner == 0){
+                return (dr == -1 && adc == 1);
+            } else {
+                return (dr == 1 && adc == 1);
+            }
+        case 2:
+            return (dr == 0 || dc == 0) && path_clear(board, from_r, from_c, target_r, target_c);
+        
+        case 3:
+            return ((adr == 2 && adc == 1) || (adr == 1 && adc == 2));
+        
+        case 4:
+            return (adr == adc) &&  path_clear(board, from_r, from_c, target_r, target_c);
+
+        case 5:
+            return ((dr == 0 || dc == 0) || (adr == adc)) && path_clear(board, from_r, from_c, target_r, target_c);
+
+        case 6:
+            return std::max(adr, adc) == 1;
+        default:
+            break;
+    }
+    return false;
+}
+
+// Capture Threat Bonus
+static int capture_threat_bonus(
+    int attacker,
+    int attacker_owner,
+    int from_r,
+    int from_C,
+    const Board& board
+){
+    int defender = 1 - attacker_owner;
+    int bonus = 0;
+
+    for(int r = 0; r < BOARD_H; r++){
+        for(int c = 0; c < BOARD_W; c++){
+            int target = board.board[defender][r][c];
+
+            if(target == 0 || target == 6){
+                continue;
+            }
+
+            if(attacks_square(attacker, attacker_owner, from_r, from_C, r, c, board)){
+                int value = kp_material[target] / 8 - kp_material[attacker] / 32;
+                if(value > 0){
+                    bonus += value;
+                }
+            }
+        }
+    }
+    return bonus;
+}
+
+//Center bonus
+static const int center_bonus[BOARD_H][BOARD_W] = {
+    {0, 0, 1, 0, 0},
+    {0, 2, 3, 2, 0},
+    {1, 3, 5, 3, 1},
+    {1, 3, 5, 3, 1},
+    {0, 2, 3, 2, 0},
+    {0, 0, 1, 0, 0}
+};
 
 /*============================================================
  * evaluate() — runtime-selectable eval strategy
@@ -80,7 +200,7 @@ int State::evaluate(
     int self_score = 0, oppn_score = 0;
 
     if(use_kp_eval){
-        /* === KP eval: material + PST + tropism === */
+        /* === KP eval: material + PST + tropism + pawn advancement + king threat + center_bonus === */
 
         int self_kr = -1, self_kc = -1;
         int oppn_kr = -1, oppn_kc = -1;
@@ -111,6 +231,9 @@ int State::evaluate(
 
                 if(sp){
                     self_score += kp_material[sp];
+                    if(sp != 6){
+                        self_score += center_bonus[r][c];
+                    }
                     int srow;
                     if(this->player == 0){
                         srow = r;
@@ -121,12 +244,24 @@ int State::evaluate(
 
                     if(oppn_kr != -1){
                         self_score += king_tropism(sp, r, c, oppn_kr, oppn_kc);
+                        if(attacks_square(sp, this->player, r, c, oppn_kr, oppn_kc, this->board)){
+                            self_score += 80;
+                        }
                     }
+
+                    if(sp == 1){
+                        self_score += pawn_advancement_bonus(this->player, r);
+                    }
+
+                    self_score += capture_threat_bonus(sp, this->player, r, c, this->board);
 
                 }
 
                 if(op){
                     oppn_score += kp_material[op];
+                    if(op != 6){
+                        oppn_score += center_bonus[r][c];
+                    }
                     int orow;
                     if(this->player == 0){
                         orow = (BOARD_H - 1 - r);
@@ -134,9 +269,20 @@ int State::evaluate(
                         orow = r;
                     }
                     oppn_score += pst[op-1][orow][c];
+
                     if(self_kr != -1){
                         oppn_score += king_tropism(op, r, c, self_kr, self_kc);
+                        if(attacks_square(op, 1 - this->player, r, c, self_kr, self_kc, this->board)){
+                            oppn_score += 80;
+                        }
                     }
+
+                    if(op == 1){
+                        oppn_score += pawn_advancement_bonus(1 - this->player, r);
+                    }
+                    
+                    oppn_score += capture_threat_bonus(op, 1 - this->player, r, c, this->board);
+
                 }
 
                 
