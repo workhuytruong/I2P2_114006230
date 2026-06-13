@@ -143,7 +143,7 @@ static int capture_threat_bonus(
     int attacker,
     int attacker_owner,
     int from_r,
-    int from_C,
+    int from_c,
     const Board& board
 ){
     int defender = 1 - attacker_owner;
@@ -157,7 +157,7 @@ static int capture_threat_bonus(
                 continue;
             }
 
-            if(attacks_square(attacker, attacker_owner, from_r, from_C, r, c, board)){
+            if(attacks_square(attacker, attacker_owner, from_r, from_c, r, c, board)){
                 int value = kp_material[target] / 8 - kp_material[attacker] / 32;
                 if(value > 0){
                     bonus += value;

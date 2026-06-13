@@ -1,6 +1,53 @@
 #include <utility>
 #include "state.hpp"
 #include "pvs.hpp"
+#include <algorithm>
+#include "config.hpp"
+
+static int move_order_score(State* state, const Move& move){
+    Point from = move.first;
+    Point to = move.second;
+
+    int self = state->player;
+    int opp = 1 - self;
+
+    int attacker = state->board.board[self][from.first][from.second];
+    int victim = state->board.board[opp][to.first][to.second];
+
+    int score = 0;
+
+    if(victim){
+        score += 10000;
+        score += PIECE_VALUES[victim] * 10;
+        score += PIECE_VALUES[attacker];
+
+        if(victim == 6){
+            score += 100000;
+        }
+    }
+
+    //Promotion bonus
+    if(attacker == 1 && (to.first == 0 || to.first == BOARD_H - 1)){
+        score += 5000;
+    }
+
+    int center_r2 = 2 * (int)to.first - (BOARD_H - 1);
+    int center_c2 = 2 * (int)to.first - (BOARD_W - 1);
+    score -= center_r2 * center_r2 + center_c2 * center_c2;
+
+    return score;
+}
+
+static std::vector<Move> ordered_moves(State* state){
+    std::vector<Move> moves = state->legal_actions;
+    
+    std::sort(moves.begin(), moves.end(),
+        [&](const Move& a, const Move& b){
+            return move_order_score(state, a) > move_order_score(state, b);
+        }
+    );
+    return moves;
+}
 
 
 /*============================================================
@@ -61,8 +108,10 @@ int PVS::eval_ctx(
     /* === Negamax loop === */
     int best_score = M_MAX;
     bool first_child = true;
+    
+    auto moves = ordered_moves(state);
 
-    for(auto& action : state->legal_actions){
+    for(auto& action : moves){
         // create the child state after applying action
 
         State* next = state->next_state(action);
@@ -154,7 +203,9 @@ SearchResult PVS::search(
     int move_index = 0;
     int total_moves = (int)state->legal_actions.size();
 
-    for(auto& action : state->legal_actions){
+    auto moves = ordered_moves(state);
+
+    for(auto& action : moves){
         /* [ Hackathon TODO 4-1 ]
          * search this move like TODO 3, but starting from the root */
 
